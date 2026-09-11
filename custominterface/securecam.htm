@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SecureCam | BCU SCA Cyber Community</title>
+<meta name="description" content="Offline BCU SCA SecureCam lab portal">
+<style>
+:root {
+  --navy:#071526; --navy2:#0d2138; --panel:#0b1b2d; --line:#27445f;
+  --gold:#f5b51b; --gold2:#ffd35c; --text:#eef5fb; --muted:#9db0c3;
+  --danger:#ff5d5d; --ok:#28d17c;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:Inter,Segoe UI,Arial,sans-serif;background:
+radial-gradient(circle at 80% 10%,#183c61 0,#071526 42%,#030b14 100%);color:var(--text)}
+body{padding:22px}
+.wrap{max-width:1450px;margin:auto}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:12px 8px 20px;border-bottom:1px solid rgba(255,255,255,.12)}
+.brand{display:flex;align-items:center;gap:20px}
+.brand img.bcu{width:225px;height:auto;object-fit:contain;background:#fff;border-radius:8px;padding:8px}
+.brand img.sca{width:255px;height:150px;object-fit:contain;background:#fff;border-radius:8px;padding:10px}
+.divider{height:72px;width:1px;background:#8ca0b3}
+.title{text-align:right}
+.title strong{display:block;font-size:22px;letter-spacing:.08em}
+.title span{color:var(--gold2);font-size:13px;letter-spacing:.16em}
+.grid{display:grid;grid-template-columns:330px 1fr;gap:18px;margin-top:18px}
+.card{background:linear-gradient(180deg,rgba(15,34,54,.96),rgba(6,19,32,.98));border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+.side{padding:24px}
+.login h1{margin:0;font-size:28px}
+.login h1 b{color:var(--gold)}
+.login .sub{color:var(--muted);font-size:12px;letter-spacing:.18em;margin:7px 0 24px}
+label{display:block;color:#b8c8d7;font-size:12px;margin:14px 0 7px}
+input{width:100%;padding:13px 14px;border-radius:10px;border:1px solid #38546d;background:#081727;color:#fff;outline:none}
+input:focus{border-color:var(--gold)}
+button{font:inherit}
+.primary{width:100%;border:0;border-radius:10px;background:linear-gradient(90deg,var(--gold),#e49a08);color:#091524;font-weight:800;padding:14px;margin-top:18px;cursor:pointer}
+.primary:hover{filter:brightness(1.08)}
+.hint{font-size:11px;color:#8ea3b7;margin-top:12px;text-align:center}
+.qr{margin:25px auto 10px;width:190px;background:#fff;padding:9px;border-radius:12px}
+.qr img{display:block;width:100%}
+.join{text-align:center}
+.join strong{display:block;font-size:14px;letter-spacing:.08em}
+.join span{display:block;color:var(--muted);font-size:11px;line-height:1.5;margin-top:5px}
+.main{padding:18px}
+.feed-head{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 12px}
+.live{display:flex;align-items:center;gap:8px;font-weight:700}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 14px var(--ok)}
+.status{font-size:11px;color:var(--muted)}
+.video{position:relative;background:#000;border-radius:14px;overflow:hidden;min-height:420px;border:1px solid #31506b;display:flex;align-items:center;justify-content:center}
+.video img{display:block;width:100%;height:auto;max-height:650px;object-fit:contain}
+.overlay{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none}
+.badge{background:rgba(2,11,20,.76);border:1px solid rgba(255,255,255,.14);padding:8px 11px;border-radius:8px;font-size:12px}
+.controls{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;margin-top:14px}
+.control-card{padding:16px;border:1px solid var(--line);border-radius:14px;background:#081827}
+.control-card h3{font-size:14px;margin:0 0 12px}
+.ptz{display:grid;grid-template-columns:repeat(3,56px);gap:7px;justify-content:center}
+.ptz button,.small-controls button{height:48px;border:1px solid #38546d;border-radius:10px;background:#102a42;color:#fff;cursor:pointer;font-size:20px}
+.ptz button:hover,.small-controls button:hover{background:#173b5d;border-color:var(--gold)}
+.ptz .center{background:#182f45;color:var(--gold)}
+.small-controls{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.small-controls button{font-size:12px}
+.notice{margin-top:12px;color:#8ea3b7;font-size:10px;line-height:1.45}
+.footer{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-top:18px;color:#8095a9;font-size:11px}
+.logout{border:1px solid #8d3940;background:transparent;color:#ff7d7d;border-radius:8px;padding:9px 13px;cursor:pointer}
+#dashboard{display:none}
+#loginError{color:#ff8585;font-size:11px;text-align:center;margin-top:10px;min-height:14px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.title{display:none}}
+@media(max-width:600px){body{padding:10px}.brand{gap:8px}.brand img.bcu{width:145px}.brand img.sca{width:145px;height:100px}.divider{height:50px}.video{min-height:230px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="topbar">
+  <div class="brand">
+    <img class="bcu" src="bcu_logo.png" alt="Birmingham City University">
+    <div class="divider"></div>
+    <img class="sca" src="sca_logo.png" alt="SCA Student Computing Association">
+  </div>
+  <div class="title">
+    <strong>SECURECAM</strong>
+    <span>BCU SCA CYBER COMMUNITY</span>
+  </div>
+</header>
+
+<div id="loginScreen" class="grid">
+  <aside class="card side login">
+    <h1>SECURE<b>CAM</b></h1>
+    <div class="sub">IP CAMERA ACCESS</div>
+    <form id="loginForm">
+      <label for="user">Username</label>
+      <input id="user" autocomplete="username" value="admin" required>
+      <label for="pass">Password</label>
+      <input id="pass" type="password" autocomplete="current-password" placeholder="Enter password" required>
+      <button class="primary" type="submit">LOGIN</button>
+      <div id="loginError"></div>
+    </form>
+
+    <div class="qr"><img src="sca_qr.png" alt="SCA Cyber Community QR code"></div>
+    <div class="join">
+      <strong>JOIN THE SCA CYBER COMMUNITY</strong>
+      <span>Scan the QR code to learn more, get involved, and stay connected.</span>
+    </div>
+  </aside>
+
+  <main class="card main">
+    <div style="padding:32px;color:#9db0c3;line-height:1.7">
+      <h2 style="color:#fff;margin-top:0">BCU Cybersecurity Lab Camera</h2>
+      <p>This isolated camera portal is part of the BCU SCA Cyber Community lab environment.</p>
+      <p>Sign in on the left to open the live camera feed and PTZ controls.</p>
+      <p style="font-size:12px">Lab use only.</p>
+    </div>
+  </main>
+</div>
+
+<div id="dashboard" class="card main" style="margin-top:18px">
+  <div class="feed-head">
+    <div class="live"><span class="dot"></span> LIVE — BCU Security Camera</div>
+    <div class="status">SCA Cyber Community • Lab Network</div>
+  </div>
+
+  <div class="video">
+    <img id="cameraStream" alt="Live camera stream">
+    <div class="overlay">
+      <div class="badge">SECURECAM</div>
+      <div class="badge" id="clock">--:--:--</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <section class="control-card">
+      <h3>PTZ CAMERA CONTROL</h3>
+      <div class="ptz">
+        <button aria-label="Up left" data-down="90" data-up="1">↖</button>
+        <button aria-label="Up" data-down="0" data-up="1">↑</button>
+        <button aria-label="Up right" data-down="91" data-up="1">↗</button>
+        <button aria-label="Left" data-down="4" data-up="5">←</button>
+        <button class="center" aria-label="Center" data-click="25">●</button>
+        <button aria-label="Right" data-down="6" data-up="7">→</button>
+        <button aria-label="Down left" data-down="92" data-up="1">↙</button>
+        <button aria-label="Down" data-down="2" data-up="3">↓</button>
+        <button aria-label="Down right" data-down="93" data-up="1">↘</button>
+      </div>
+      <div class="notice">Hold a direction button to move the camera; release to stop. These commands use the camera's existing decoder_control.cgi PTZ interface.</div>
+    </section>
+
+    <section class="control-card">
+      <h3>CAMERA ACTIONS</h3>
+      <div class="small-controls">
+        <button data-click="26">Vertical Patrol</button>
+        <button data-click="28">Horizontal Patrol</button>
+        <button data-click="94">Output On</button>
+        <button data-click="95">Output Off</button>
+      </div>
+      <div class="notice">The controls are intentionally limited to the PTZ functions supported by the existing camera firmware.</div>
+    </section>
+  </div>
+
+  <div class="footer">
+    <span>BCU • SCA Student Computing Association • Cyber Community</span>
+    <button class="logout" id="logout">LOGOUT</button>
+  </div>
+</div>
+
+<script>
+const PORTAL_USER = "admin";
+const PORTAL_PASS = "admin";
+
+/* Existing camera backend credentials used by videostream.cgi / decoder_control.cgi. */
+const CAMERA_USER = "admin";
+const CAMERA_PASS = "123456";
+
+function authQuery(endpoint, extra="") {
+  return endpoint + "?loginuse=" + encodeURIComponent(CAMERA_USER) +
+    "&loginpas=" + encodeURIComponent(CAMERA_PASS) +
+    extra + "&_=" + Date.now() + Math.random();
+}
+
+function sendPTZ(command) {
+  const s = document.createElement("script");
+  s.src = authQuery("decoder_control.cgi", "&command=" + encodeURIComponent(command) + "&onestep=0");
+  s.onerror = () => {};
+  document.body.appendChild(s);
+  setTimeout(() => s.remove(), 2500);
+}
+
+function startCamera() {
+  const img = document.getElementById("cameraStream");
+  img.src = authQuery("videostream.cgi");
+}
+
+function stopCamera() {
+  document.getElementById("cameraStream").removeAttribute("src");
+}
+
+document.querySelectorAll("[data-down]").forEach(btn => {
+  btn.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    btn.setPointerCapture?.(e.pointerId);
+    sendPTZ(btn.dataset.down);
+  });
+  const stop = e => {
+    e.preventDefault();
+    sendPTZ(btn.dataset.up);
+  };
+  btn.addEventListener("pointerup", stop);
+  btn.addEventListener("pointercancel", stop);
+  btn.addEventListener("lostpointercapture", () => sendPTZ(btn.dataset.up));
+});
+
+document.querySelectorAll("[data-click]").forEach(btn => {
+  btn.addEventListener("click", () => sendPTZ(btn.dataset.click));
+});
+
+document.getElementById("loginForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const u = document.getElementById("user").value;
+  const p = document.getElementById("pass").value;
+  const err = document.getElementById("loginError");
+
+  if (u === PORTAL_USER && p === PORTAL_PASS) {
+    err.textContent = "";
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("dashboard").style.display = "block";
+    startCamera();
+  } else {
+    err.textContent = "Invalid portal credentials.";
+  }
+});
+
+document.getElementById("logout").addEventListener("click", () => {
+  stopCamera();
+  document.getElementById("dashboard").style.display = "none";
+  document.getElementById("loginScreen").style.display = "grid";
+  document.getElementById("pass").value = "";
+});
+
+setInterval(() => {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+}, 1000);
+</script>
+</body>
+</html>
