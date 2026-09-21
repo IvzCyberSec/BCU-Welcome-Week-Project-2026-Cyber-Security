@@ -8,7 +8,8 @@
 
 You have been hired as a junior cybersecurity consultant.
 
-A small office has installed a new IP surveillance system. Before the camera is placed into production, you have been asked to perform a basic security assessment.
+A small office has installed a new IP surveillance system. Before the camera is placed into production, 
+you have been asked to perform a basic security assessment.
 
 Your job is to find out:
 
