@@ -1,15 +1,10 @@
-
-### `lab/student-environment.md`
-
-```md
 # Student Environment
 
 ## Scenario
 
 You have been hired as a junior cybersecurity consultant.
 
-A small office has installed a new IP surveillance system. Before the camera is placed into production, 
-you have been asked to perform a basic security assessment.
+A small office has installed a new IP surveillance system. Before the camera is placed into production, you have been asked to perform a basic security assessment.
 
 Your job is to find out:
 
@@ -29,3 +24,28 @@ Start with network discovery:
 
 ```bash
 nmap -n 192.168.0.0/24
+```
+
+Once you identify the camera, investigate it further.
+
+## Assessment Flow
+
+```text
+Discover
+   ↓
+Enumerate
+   ↓
+Identify
+   ↓
+Investigate
+   ↓
+Assess
+   ↓
+Defend
+```
+
+## Important
+
+This is an authorised lab environment.
+
+Do not use the techniques from this exercise against systems that you do not own or have permission to test.
