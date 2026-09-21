@@ -1,4 +1,4 @@
-# BCU Welcome Week — IP Camera Security Assessment Lab
+# BCU Welcome Week - IP Camera Security Assessment Lab
 
 A hands-on cybersecurity project developed for the **SCA Cyber Security Community at Birmingham City University**.
 
