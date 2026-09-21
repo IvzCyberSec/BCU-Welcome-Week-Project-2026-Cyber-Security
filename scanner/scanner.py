@@ -1,4 +1,6 @@
+
 import socket
+import os
 import ipaddress
 import platform
 import subprocess
@@ -7,1212 +9,648 @@ import http.client
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Scapy is recommended on Kali/Linux for very fast ARP discovery.
+# Optional fast ARP discovery on Kali/Linux.
 try:
     from scapy.all import ARP, Ether, srp, conf
     SCAPY_AVAILABLE = True
 except ImportError:
     SCAPY_AVAILABLE = False
 
+# TERMINAL COLOURS
 
-# =========================================================
-# CONFIGURATION
-# =========================================================
+class C:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    WHITE = "\033[97m"
 
-# Keep the port list small for the Welcome Week exercise.
-# The important clue is TCP/80.
+
+def paint(text, colour):
+    return f"{colour}{text}{C.RESET}"
+
+
+def header(title):
+    print("\n" + paint("=" * 72, C.BLUE))
+    print(paint(f"{title:^72}", C.BOLD + C.CYAN))
+    print(paint("=" * 72, C.BLUE))
+
+
+def msg(prefix, text, colour=C.WHITE):
+    print(f"{paint(prefix, C.BOLD + colour)} {text}")
+
+# LAB CONFIGURATION
+
+# IMPORTANT LAB PORTS:
+# TCP/23 = Telnet
+# TCP/81 = camera web interface
 COMMON_PORTS = {
+    21: "FTP",
     22: "SSH",
+    23: "TELNET",
     80: "HTTP",
+    81: "HTTP - CAMERA WEB",
     443: "HTTPS",
     554: "RTSP",
     8080: "HTTP-alt",
-    81: "HTTP",
-    23: "TELNET"
 }
 
-# Ports used only as a fallback if Scapy/ARP discovery
-# is unavailable.
-DISCOVERY_PORTS = [
-    22, 80, 443, 554, 8080, 23, 81
-]
+DISCOVERY_PORTS = list(COMMON_PORTS)
+
+# Known devices in the Welcome Week lab.
+# These names make the discovery stage easier for beginners to understand.
+KNOWN_DEVICES = {
+    "192.168.0.1": "SCA_Router",
+    "192.168.0.101": "SCA_Cisco_Switch",
+    "192.168.0.114": "SCA_IP_CAM",
+}
+
+# The scanner should identify the laptop running it by its local IP.
+LOCAL_DEVICE_NAME = "Laptop"
 
 
-# =========================================================
-# NETWORK INFORMATION
-# =========================================================
+# NETWORK
+
+def clear_screen():
+    """Reliably clear the current Windows console or ANSI terminal."""
+    try:
+        if platform.system().lower() == "windows":
+            os.system("cls")
+            print("\033[2J\033[H", end="", flush=True)
+        else:
+            os.system("clear")
+            print("\033[2J\033[H", end="", flush=True)
+
+    except Exception:
+        # Last-resort fallback for unusual terminal environments.
+        print("\n" * 100, end="", flush=True)
+
 
 def get_local_ip():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
     try:
-        # This does not need Internet access. It lets the OS
-        # tell us which local interface it would use.
-        sock.connect(("8.8.8.8", 80))
+        # No Internet traffic is required.
+        sock.connect(("192.168.0.1", 80))
         return sock.getsockname()[0]
-
     except Exception:
         return "127.0.0.1"
-
     finally:
         sock.close()
 
 
 def get_local_subnet():
-    local_ip = get_local_ip()
+    ip = get_local_ip()
+    if ip == "127.0.0.1":
+        return ipaddress.ip_network("192.168.0.0/24")
+    return ipaddress.ip_network(f"{ip}/24", strict=False)
 
-    return ipaddress.ip_network(
-        f"{local_ip}/24",
-        strict=False
-    )
-
-
-# =========================================================
-# FAST ARP DISCOVERY
-# =========================================================
-
-def discover_devices_arp(network):
-    """
-    Actively asks every IP in the local subnet who is present.
-
-    This is much faster than pinging every host and then
-    checking many TCP ports.
-    """
-
-    if not SCAPY_AVAILABLE:
-        return []
-
-    print("\n" + "=" * 70)
-    print("🔎 DISCOVERING DEVICES")
-    print("=" * 70)
-
-    print(f"\n[*] Network: {network}")
-    print("[*] Sending a fast ARP discovery request...")
-    print("[*] Please wait...\n")
-
-    try:
-        # Make Scapy use the normal interface.
-        conf.verb = 0
-
-        request = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(
-            pdst=str(network)
-        )
-
-        answered, _ = srp(
-            request,
-            timeout=2,
-            verbose=False
-        )
-
-        devices = []
-
-        for _, received in answered:
-
-            ip = received.psrc
-            mac = received.hwsrc.upper()
-
-            devices.append({
-                "ip": ip,
-                "mac": mac
-            })
-
-        devices.sort(
-            key=lambda x: ipaddress.ip_address(x["ip"])
-        )
-
-        for device in devices:
-            print(
-                f"[+] Device found: "
-                f"{device['ip']}    "
-                f"{device['mac']}"
-            )
-
-        return devices
-
-    except Exception as error:
-
-        print(
-            f"\n[!] ARP discovery failed: {error}"
-        )
-
-        return []
-
-
-# =========================================================
-# FAST FALLBACK DISCOVERY
-# =========================================================
 
 def ping_host(ip):
-
-    system = platform.system().lower()
-
-    if system == "windows":
-        command = [
-            "ping",
-            "-n",
-            "1",
-            "-w",
-            "300",
-            str(ip)
-        ]
+    if platform.system().lower() == "windows":
+        command = ["ping", "-n", "1", "-w", "300", str(ip)]
     else:
-        command = [
-            "ping",
-            "-c",
-            "1",
-            "-W",
-            "1",
-            str(ip)
-        ]
+        command = ["ping", "-c", "1", "-W", "1", str(ip)]
 
     try:
-        result = subprocess.run(
+        return subprocess.run(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=2
-        )
-
-        return result.returncode == 0
-
+            timeout=1.5
+        ).returncode == 0
     except Exception:
         return False
 
 
 def tcp_probe(ip, port):
-
-    sock = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_STREAM
-    )
-
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(0.25)
-
     try:
-        return sock.connect_ex(
-            (str(ip), port)
-        ) == 0
-
+        return sock.connect_ex((str(ip), port)) == 0
     except Exception:
         return False
-
     finally:
         sock.close()
 
 
 def host_is_alive(ip):
-
     if ping_host(ip):
         return True
 
-    for port in DISCOVERY_PORTS:
-        if tcp_probe(ip, port):
-            return True
+    # Cameras may ignore ping, so test TCP services as well.
+    return any(tcp_probe(ip, port) for port in DISCOVERY_PORTS)
 
-    return False
+
+def discover_devices_arp(network):
+    if not SCAPY_AVAILABLE:
+        return []
+
+    try:
+        conf.verb = 0
+        request = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(
+            pdst=str(network)
+        )
+        answered, _ = srp(request, timeout=2, verbose=False)
+
+        devices = [
+            {"ip": r.psrc, "mac": r.hwsrc.upper()}
+            for _, r in answered
+        ]
+        return sorted(
+            devices,
+            key=lambda x: ipaddress.ip_address(x["ip"])
+        )
+    except Exception:
+        return []
 
 
 def discover_devices_fallback(network):
-
-    print("\n" + "=" * 70)
-    print("🔎 DISCOVERING DEVICES")
-    print("=" * 70)
-
-    print(f"\n[*] Network: {network}")
-    print("[*] ARP discovery is unavailable.")
-    print("[*] Using quick ICMP/TCP fallback...\n")
-
+    hosts = list(network.hosts())
     devices = []
 
-    hosts = list(network.hosts())
-
     with ThreadPoolExecutor(max_workers=100) as executor:
-
         futures = {
-            executor.submit(
-                host_is_alive,
-                ip
-            ): ip
+            executor.submit(host_is_alive, ip): ip
             for ip in hosts
         }
 
         for future in as_completed(futures):
-
             ip = futures[future]
-
             try:
                 if future.result():
-
                     devices.append({
                         "ip": str(ip),
                         "mac": "Unknown"
                     })
-
-                    print(
-                        f"[+] Device found: {ip}"
-                    )
-
             except Exception:
                 pass
 
-    devices.sort(
+    return sorted(
+        devices,
         key=lambda x: ipaddress.ip_address(x["ip"])
     )
 
-    return devices
-
 
 def discover_devices(network):
+    msg("[*]", f"Scanning {network} for active devices...", C.CYAN)
 
-    # Preferred path: active ARP sweep.
     if SCAPY_AVAILABLE:
-
         devices = discover_devices_arp(network)
-
         if devices:
+            msg("[+]", f"ARP discovery found {len(devices)} device(s).", C.GREEN)
             return devices
 
-    # Fallback if Scapy is unavailable or ARP fails.
-    return discover_devices_fallback(network)
+    msg("[*]", "Using ping/TCP discovery fallback...", C.YELLOW)
+    devices = discover_devices_fallback(network)
+    msg("[+]", f"Discovery found {len(devices)} device(s).", C.GREEN)
+    return devices
 
-
-# =========================================================
-# HOSTNAME
-# =========================================================
+# DEVICE INFORMATION
 
 def get_hostname(ip):
-
     try:
-        hostname = socket.gethostbyaddr(ip)[0]
-
+        hostname = socket.gethostbyaddr(ip)[0].strip()
         if hostname and hostname != ip:
             return hostname
-
     except Exception:
         pass
-
     return "Unknown"
 
 
-# =========================================================
-# MAC ADDRESS
-# =========================================================
-
 def get_mac_address(ip):
-
-    # If ARP discovery already supplied a MAC, use that.
     try:
         result = subprocess.run(
-            [
-                "ip",
-                "neigh",
-                "show",
-                ip
-            ],
+            ["ip", "neigh", "show", ip],
             capture_output=True,
             text=True,
             timeout=1
         )
-
-        match = re.search(
-            r"lladdr\s+([0-9a-fA-F:]{17})",
-            result.stdout
-        )
-
+        match = re.search(r"lladdr\s+([0-9a-fA-F:]{17})", result.stdout)
         if match:
             return match.group(1).upper()
-
     except Exception:
         pass
 
-    # Linux ARP table fallback.
-    try:
-        with open("/proc/net/arp", "r") as arp_file:
-
-            for line in arp_file.readlines()[1:]:
-
-                fields = line.split()
-
-                if len(fields) >= 4:
-
-                    arp_ip = fields[0]
-                    mac = fields[3]
-
-                    if arp_ip == ip and mac != "00:00:00:00:00:00":
-                        return mac.upper()
-
-    except Exception:
-        pass
-
-    # Windows fallback.
     try:
         result = subprocess.run(
-            [
-                "arp",
-                "-a",
-                ip
-            ],
+            ["arp", "-a", ip],
             capture_output=True,
             text=True,
             timeout=1
         )
-
         match = re.search(
             r"([0-9a-fA-F]{2}(?:-[0-9a-fA-F]{2}){5})",
             result.stdout
         )
-
         if match:
-            return match.group(1).replace(
-                "-",
-                ":"
-            ).upper()
-
+            return match.group(1).replace("-", ":").upper()
     except Exception:
         pass
 
     return "Unknown"
 
 
-# =========================================================
-# MAC VENDORS
-# =========================================================
-
 MAC_VENDORS = {
-    "B827EB": "Raspberry Pi",
-    "DCA632": "Raspberry Pi",
-    "E45F01": "Raspberry Pi",
-
     "00000C": "Cisco",
     "001B54": "Cisco",
     "0022BD": "Cisco",
     "001C58": "Cisco",
     "00260B": "Cisco",
-
-    "000C29": "VMware",
-    "005056": "VMware",
-
-    "080027": "VirtualBox",
-
-    "00155D": "Microsoft",
-    "001DD8": "Microsoft",
-
-    "001B21": "Intel",
-    "001C23": "Intel",
-    "3C970E": "Intel",
-
     "50C7BF": "TP-Link",
     "C0A0BB": "TP-Link",
-
-    "00223F": "Netgear",
-    "A00460": "Netgear",
-
-    "001C42": "Apple",
-    "3C0754": "Apple",
+    "000C29": "VMware",
+    "005056": "VMware",
+    "080027": "VirtualBox",
 }
 
 
 def get_vendor(mac):
-
-    if mac == "Unknown":
+    if not mac or mac == "Unknown":
         return "Unknown"
-
-    compact = (
-        mac
-        .replace(":", "")
-        .replace("-", "")
-        .upper()
-    )
-
-    return MAC_VENDORS.get(
-        compact[:6],
-        "Unknown"
-    )
+    compact = mac.replace(":", "").replace("-", "").upper()
+    return MAC_VENDORS.get(compact[:6], "Unknown")
 
 
-# =========================================================
-# DEVICE TYPE
-# =========================================================
+def get_device_name(device):
+    """Return a friendly lab name instead of showing Unknown where possible."""
+    ip = device["ip"]
 
-def identify_device_type(
-    vendor,
-    hostname,
-    open_ports=None,
-    services=None
-):
+    if ip in KNOWN_DEVICES:
+        return KNOWN_DEVICES[ip]
 
-    open_ports = open_ports or []
-    services = services or []
+    if ip == get_local_ip():
+        return LOCAL_DEVICE_NAME
 
-    hostname_lower = hostname.lower()
+    hostname = device.get("hostname", "")
+    if hostname and hostname.lower() != "unknown":
+        return hostname
 
-    if vendor == "Cisco":
-        return "Network device"
+    vendor = device.get("vendor", "")
+    if vendor and vendor.lower() != "unknown":
+        return f"{vendor} Device"
 
-    if 554 in open_ports:
-        return "Possible IP camera"
+    return "Lab Device"
 
-    for service in services:
-
-        details = service["details"].lower()
-
-        for keyword in [
-            "camera",
-            "ipcam",
-            "surveillance",
-            "dvr",
-            "nvr",
-            "video"
-        ]:
-
-            if keyword in details:
-                return "Possible IP camera"
-
-    if 80 in open_ports or 8080 in open_ports:
-        return "Web-enabled device"
-
-    if 22 in open_ports:
-        return "Linux / network device"
-
-    if (
-        "router" in hostname_lower
-        or "gateway" in hostname_lower
-    ):
-        return "Router / gateway"
-
-    return "Unknown"
-
-
-# =========================================================
-# ENRICH DEVICES
-# =========================================================
-
-def enrich_devices(devices):
-
-    for device in devices:
-
-        ip = device["ip"]
-
-        if device.get("mac") == "Unknown":
-            device["mac"] = get_mac_address(ip)
-
-        device["hostname"] = get_hostname(ip)
-
-        device["vendor"] = get_vendor(
-            device["mac"]
-        )
-
-        device["device_type"] = identify_device_type(
-            device["vendor"],
-            device["hostname"]
-        )
-
-    return devices
-
-
-# =========================================================
-# DISPLAY DEVICES
-# =========================================================
 
 def print_devices(devices):
-
-    print("\n")
-
-    print("=" * 105)
+    header("DEVICES FOUND")
 
     print(
-        f"{'#':<5}"
-        f"{'IP ADDRESS':<18}"
-        f"{'MAC ADDRESS':<20}"
-        f"{'VENDOR':<18}"
-        f"{'DEVICE':<25}"
+        f"{paint('DEVICE', C.BOLD + C.CYAN):<8}"
+        f"{paint('NAME', C.BOLD + C.CYAN):<30}"
+        f"{paint('IP ADDRESS', C.BOLD + C.CYAN):<18}"
+        f"{paint('MAC ADDRESS', C.BOLD + C.CYAN)}"
     )
+    print(paint("-" * 82, C.BLUE))
 
-    print("=" * 105)
+    for n, device in enumerate(devices, 1):
+        name = get_device_name(device)
 
-    for number, device in enumerate(
-        devices,
-        start=1
-    ):
+        # [1], [2], [3] makes the selection format obvious to beginners.
+        selector = f"[{n}]"
 
         print(
-            f"{number:<5}"
+            f"{paint(selector, C.BOLD + C.YELLOW):<8}"
+            f"{paint(name, C.BOLD + C.WHITE):<30}"
             f"{device['ip']:<18}"
-            f"{device['mac']:<20}"
-            f"{device['vendor']:<18}"
-            f"{device['device_type']:<25}"
+            f"{device.get('mac', 'Unknown')}"
         )
 
-    print("=" * 105)
+    print(paint("-" * 82, C.BLUE))
+    print(paint(
+        "Select a device using its number, e.g.  [1]  [2]  [3]",
+        C.BOLD + C.CYAN
+    ))
 
-
-# =========================================================
-# PORT SCANNING
-# =========================================================
+# SERVICE ENUMERATION
 
 def scan_port(ip, port):
-
-    sock = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_STREAM
-    )
-
-    sock.settimeout(0.35)
-
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.50)
     try:
-
-        if sock.connect_ex(
-            (ip, port)
-        ) == 0:
-
+        if sock.connect_ex((ip, port)) == 0:
             return port
-
     except Exception:
         pass
-
     finally:
         sock.close()
-
     return None
 
 
 def scan_ports(ip):
-
-    print(
-        f"\n[*] Checking selected device: {ip}"
-    )
-
-    print(
-        "[*] Checking common services..."
+    header("SERVICE ENUMERATION")
+    msg("[*]", f"Checking TCP services on {ip}", C.CYAN)
+    msg(
+        "[*]",
+        "Required lab checks: TCP/23 Telnet and TCP/81 camera web service",
+        C.YELLOW
     )
 
     open_ports = []
 
-    with ThreadPoolExecutor(
-        max_workers=len(COMMON_PORTS)
-    ) as executor:
-
+    with ThreadPoolExecutor(max_workers=len(COMMON_PORTS)) as executor:
         futures = {
-            executor.submit(
-                scan_port,
-                ip,
-                port
-            ): port
+            executor.submit(scan_port, ip, port): port
             for port in COMMON_PORTS
         }
 
         for future in as_completed(futures):
-
             try:
-
                 result = future.result()
-
                 if result is not None:
                     open_ports.append(result)
-
             except Exception:
                 pass
 
     return sorted(open_ports)
 
 
-# =========================================================
-# HTTP IDENTIFICATION
-# =========================================================
-
 def get_http_info(ip, port):
-
     try:
+        conn = http.client.HTTPConnection(ip, port, timeout=1.5)
+        conn.request("GET", "/")
+        response = conn.getresponse()
+        server = response.getheader("Server") or "Unknown"
+        body = response.read(32768)
+        conn.close()
 
-        connection = http.client.HTTPConnection(
-            ip,
-            port=port,
-            timeout=1.5
-        )
-
-        connection.request(
-            "GET",
-            "/"
-        )
-
-        response = connection.getresponse()
-
-        server = response.getheader(
-            "Server"
-        )
-
-        body = response.read(
-            32768
-        )
-
-        connection.close()
-
+        text = body.decode("utf-8", errors="ignore")
         title = "Unknown"
-
-        text = body.decode(
-            "utf-8",
-            errors="ignore"
-        )
 
         match = re.search(
             r"<title[^>]*>(.*?)</title>",
             text,
-            re.IGNORECASE | re.DOTALL
+            re.I | re.S
         )
-
         if match:
+            title = re.sub(r"\s+", " ", match.group(1)).strip()
 
-            title = re.sub(
-                r"\s+",
-                " ",
-                match.group(1)
-            ).strip()
-
-        return {
-            "server": server or "Unknown",
-            "title": title
-        }
-
+        return server, title
     except Exception:
         return None
 
-
-# =========================================================
-# SSH
-# =========================================================
-
-def get_ssh_banner(ip):
-
-    sock = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_STREAM
-    )
-
-    sock.settimeout(1.5)
-
-    try:
-
-        sock.connect(
-            (ip, 22)
-        )
-
-        return sock.recv(
-            1024
-        ).decode(
-            "utf-8",
-            errors="ignore"
-        ).strip()
-
-    except Exception:
-        return None
-
-    finally:
-        sock.close()
-
-
-# =========================================================
-# RTSP
-# =========================================================
-
-def check_rtsp(ip):
-
-    sock = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_STREAM
-    )
-
-    sock.settimeout(1.5)
-
-    try:
-
-        sock.connect(
-            (ip, 554)
-        )
-
-        request = (
-            f"OPTIONS rtsp://{ip}/ RTSP/1.0\r\n"
-            "CSeq: 1\r\n"
-            "\r\n"
-        )
-
-        sock.sendall(
-            request.encode()
-        )
-
-        response = sock.recv(
-            2048
-        ).decode(
-            "utf-8",
-            errors="ignore"
-        )
-
-        return "RTSP/" in response
-
-    except Exception:
-        return False
-
-    finally:
-        sock.close()
-
-
-# =========================================================
-# SERVICE IDENTIFICATION
-# =========================================================
-
-def identify_services(
-    ip,
-    open_ports
-):
-
-    services = []
-
-    for port in open_ports:
-
-        if port in [80, 443, 8080]:
-
-            info = get_http_info(
-                ip,
-                port
-            )
-
-            if info:
-
-                services.append({
-                    "port": port,
-                    "service": "HTTP",
-                    "details":
-                        f"Server={info['server']} | "
-                        f"Title={info['title']}"
-                })
-
-        elif port == 22:
-
-            banner = get_ssh_banner(
-                ip
-            )
-
-            services.append({
-                "port": 22,
-                "service": "SSH",
-                "details":
-                    banner or "SSH service detected"
-            })
-
-        elif port == 554:
-
-            services.append({
-                "port": 554,
-                "service": "RTSP",
-                "details":
-                    "RTSP response detected"
-                    if check_rtsp(ip)
-                    else "TCP/554 open"
-            })
-
-    return services
-
-
-# =========================================================
-# DISPLAY PORTS
-# =========================================================
 
 def print_ports(open_ports):
-
-    print("\n")
-
-    print("=" * 55)
+    header("OPEN SERVICES")
 
     print(
-        f"{'PORT':<10}"
-        f"{'STATE':<12}"
-        f"{'SERVICE':<25}"
+        f"{paint('PORT', C.BOLD + C.CYAN):<10}"
+        f"{paint('STATE', C.BOLD + C.CYAN):<16}"
+        f"{paint('SERVICE', C.BOLD + C.CYAN)}"
     )
-
-    print("=" * 55)
+    print(paint("-" * 58, C.BLUE))
 
     for port in open_ports:
-
-        print(
-            f"{port:<10}"
-            f"{'OPEN':<12}"
-            f"{COMMON_PORTS.get(port, 'Unknown'):<25}"
-        )
-
-    print("=" * 55)
-
-
-# =========================================================
-# DISPLAY SERVICE DETAILS
-# =========================================================
-
-def print_service_details(services):
-
-    if not services:
-        return
-
-    print("\n")
-
-    print("=" * 80)
-
-    print(
-        f"{'PORT':<10}"
-        f"{'SERVICE':<15}"
-        f"{'DETAILS':<55}"
-    )
-
-    print("=" * 80)
-
-    for service in services:
-
-        print(
-            f"{service['port']:<10}"
-            f"{service['service']:<15}"
-            f"{service['details']:<55}"
-        )
-
-    print("=" * 80)
-
-
-# =========================================================
-# CAMERA WEB CLUE
-# =========================================================
-
-def show_web_clue(
-    target_ip,
-    open_ports
-):
-
-    if 80 not in open_ports:
-        return
-
-    url = f"http://{target_ip}/"
-
-    print("\n")
-
-    print("=" * 70)
-    print("💡 CLUE")
-    print("=" * 70)
-
-    print(
-        "Port 80 is OPEN."
-    )
-
-    print(
-        "Port 80 commonly provides a web service."
-    )
-
-    print(
-        "\nOpen the camera's web page:"
-    )
-
-    # OSC 8 creates a clickable terminal link in
-    # terminals that support it.
-    clickable = (
-        f"\033]8;;{url}\033\\"
-        f"🌐 {url}"
-        f"\033]8;;\033\\"
-    )
-
-    print(clickable)
-
-    print(
-        "\n[Tip] Click the link above."
-    )
-
-    print("=" * 70)
-
-
-# =========================================================
-# SELECTED DEVICE
-# =========================================================
-
-def investigate_device(target):
-
-    target_ip = target["ip"]
-
-    print("\n")
-
-    print("=" * 70)
-    print("🎯 SELECTED DEVICE")
-    print("=" * 70)
-
-    print(
-        f"IP Address : {target_ip}"
-    )
-
-    print(
-        f"MAC Address: {target.get('mac', 'Unknown')}"
-    )
-
-    print(
-        f"Vendor     : {target.get('vendor', 'Unknown')}"
-    )
-
-    print("=" * 70)
-
-    # -----------------------------------------------------
-    # PORTS
-    # -----------------------------------------------------
-
-    open_ports = scan_ports(
-        target_ip
-    )
-
-    if not open_ports:
-
-        print(
-            "\n[!] No open services found."
-        )
-
-        return
-
-    print_ports(
-        open_ports
-    )
-
-    # -----------------------------------------------------
-    # SERVICES
-    # -----------------------------------------------------
-
-    services = identify_services(
-        target_ip,
-        open_ports
-    )
-
-    print_service_details(
-        services
-    )
-
-    # -----------------------------------------------------
-    # DEVICE ASSESSMENT
-    # -----------------------------------------------------
-
-    device_type = identify_device_type(
-        target.get("vendor", "Unknown"),
-        target.get("hostname", "Unknown"),
-        open_ports,
-        services
-    )
-
-    print("\n")
-
-    print("=" * 70)
-
-    print(
-        f"DEVICE ASSESSMENT: {device_type}"
-    )
-
-    print("=" * 70)
-
-    # -----------------------------------------------------
-    # PORT 80 CLUE
-    # -----------------------------------------------------
-
-    show_web_clue(
-        target_ip,
-        open_ports
-    )
-
-    print(
-        "\n[+] Investigation complete."
-    )
-
-
-# =========================================================
-# START SCREEN
-# =========================================================
-
-def show_start_screen():
-
-    print("\n")
-
-    print("=" * 70)
-
-    print(
-        "              🔐 CYBERSECURITY LAB"
-    )
-
-    print("=" * 70)
-
-    print(
-        "\nYou are the cybersecurity consultant."
-    )
-
-    print(
-        "Your first task is to discover the devices"
-    )
-
-    print(
-        "on the isolated lab network."
-    )
-
-    print("\n")
-
-    print(
-        "Press ENTER to start scanning."
-    )
-
-    print(
-        "Type Q to quit."
-    )
-
-    print("=" * 70)
-
-
-# =========================================================
-# MAIN LOOP
-# =========================================================
-
-def main():
-
-    while True:
-
-        show_start_screen()
-
-        choice = input(
-            "\n> "
-        ).strip().lower()
-
-        if choice == "q":
-
+        if port == 23:
             print(
-                "\nGoodbye!"
+                f"{paint('23', C.BOLD + C.RED):<20}"
+                f"{paint('OPEN', C.BOLD + C.RED):<26}"
+                f"{paint('TELNET', C.BOLD + C.RED)}"
+            )
+        elif port == 81:
+            print(
+                f"{paint('81', C.BOLD + C.GREEN):<20}"
+                f"{paint('OPEN', C.BOLD + C.GREEN):<26}"
+                f"{paint('HTTP - CAMERA WEB', C.BOLD + C.GREEN)}"
+            )
+        else:
+            print(
+                f"{port:<20}"
+                f"{paint('OPEN', C.BOLD + C.GREEN):<26}"
+                f"{COMMON_PORTS[port]}"
             )
 
-            break
+    print(paint("-" * 58, C.BLUE))
 
-        # -------------------------------------------------
-        # NETWORK
-        # -------------------------------------------------
+# CAMERA CLUE
+
+def show_camera_clue(target_ip, open_ports):
+    # The lab camera uses TCP/81, not TCP/80.
+    if 81 not in open_ports:
+        return
+
+    url = f"http://{target_ip}:81/securecam.html"
+
+    header("CAMERA WEB INTERFACE")
+
+    msg(
+        "[+]",
+        "TCP/81 is OPEN and provides the camera web service.",
+        C.GREEN
+    )
+
+    print()
+    print(paint(
+        "Use the target IP address together with port 81.",
+        C.YELLOW
+    ))
+    print(paint(
+        "The lab camera page is:",
+        C.WHITE
+    ))
+    print()
+    print(paint(
+        f"  {url}",
+        C.BOLD + C.GREEN
+    ))
+    print()
+    print(paint(
+        "Copy the URL into your browser.",
+        C.BOLD + C.CYAN
+    ))
+
+    choice = input(
+        "\nOpen it automatically? [B = browser / ENTER = continue]: "
+    ).strip().lower()
+
+    if choice == "b":
+        try:
+            # Open the camera URL without leaving it printed in the terminal.
+            webbrowser.open_new_tab(url)
+
+            # Give Windows a moment to hand the URL to the browser.
+            import time
+            time.sleep(0.35)
+
+            # Wipe the entire previous investigation, including the URL.
+            clear_screen()
+
+            # Return directly to the reusable scan state.
+            print(paint("=" * 72, C.BLUE))
+            print(paint("READY FOR ANOTHER SCAN", C.BOLD + C.CYAN))
+            print(paint("=" * 72, C.BLUE))
+            print()
+            print(paint(
+                "The camera page has been opened in the browser.",
+                C.GREEN
+            ))
+            print()
+            print(paint(
+                "The previous investigation details have been cleared.",
+                C.YELLOW
+            ))
+
+        except Exception:
+            clear_screen()
+            print(paint("=" * 72, C.BLUE))
+            print(paint("READY FOR ANOTHER SCAN", C.BOLD + C.CYAN))
+            print(paint("=" * 72, C.BLUE))
+            print()
+            msg(
+                "[!]",
+                "The browser could not be opened automatically.",
+                C.YELLOW
+            )
+            print()
+            print(paint(
+                "The previous investigation details have been cleared.",
+                C.YELLOW
+            ))
+
+# INVESTIGATION
+
+def investigate_device(target):
+    target_ip = target["ip"]
+
+    header("SELECTED DEVICE")
+    print(f"{paint('Name       :', C.BOLD + C.CYAN)} {get_device_name(target)}")
+    print(f"{paint('IP Address :', C.BOLD + C.CYAN)} {target_ip}")
+    print(f"{paint('MAC Address:', C.BOLD + C.CYAN)} {target.get('mac', 'Unknown')}")
+    print(f"{paint('Vendor     :', C.BOLD + C.CYAN)} {target.get('vendor', 'Unknown')}")
+
+    open_ports = scan_ports(target_ip)
+
+    if not open_ports:
+        msg("[!]", "No open services found.", C.YELLOW)
+        return
+
+    print_ports(open_ports)
+
+    if target_ip == "192.168.0.114":
+        header("DEVICE IDENTIFICATION")
+        msg(
+            "[+]",
+            "Known lab target: SCA Secure IP CAM",
+            C.GREEN
+        )
+
+    if 23 in open_ports and 81 in open_ports:
+        header("DEVICE IDENTIFICATION")
+        msg(
+            "[+]",
+            "TCP/23 Telnet + TCP/81 HTTP is consistent with the lab IP camera.",
+            C.GREEN
+        )
+        msg(
+            "[!]",
+            "These exposed services are now evidence to investigate.",
+            C.YELLOW
+        )
+
+    show_camera_clue(target_ip, open_ports)
+
+    print()
+    msg("[+]", "Investigation complete.", C.GREEN)
+
+
+# MAIN
+
+def show_start_screen():
+    header("CYBERSECURITY LAB")
+
+    print(paint(
+        "You are the cybersecurity consultant.",
+        C.BOLD + C.WHITE
+    ))
+    print("Discover devices on the isolated lab network.")
+    print("Select a device and enumerate its exposed services.")
+    print()
+    print(paint(
+        "METHOD: Discover -> Select -> Enumerate -> Identify -> Investigate",
+        C.BOLD + C.CYAN
+    ))
+    print()
+    print(paint(
+        "Only scan the equipment provided for this lab.",
+        C.YELLOW
+    ))
+    print()
+    print(paint("Press ENTER to start scanning.", C.BOLD + C.GREEN))
+    print(paint("Type Q to quit.", C.BOLD + C.RED))
+
+
+def main():
+    while True:
+        show_start_screen()
+        choice = input("\n> ").strip().lower()
+
+        if choice == "q":
+            msg("[*]", "Goodbye.", C.CYAN)
+            return
 
         network = get_local_subnet()
 
-        print(
-            f"\n[+] Local network detected: {network}"
-        )
+        header("NETWORK DISCOVERY")
+        msg("[+]", f"Local network detected: {network}", C.GREEN)
 
-        # -------------------------------------------------
-        # FAST DISCOVERY
-        # -------------------------------------------------
-
-        devices = discover_devices(
-            network
-        )
+        devices = discover_devices(network)
 
         if not devices:
-
-            print(
-                "\n[!] No active devices found."
-            )
-
-            input(
-                "\nPress ENTER to return..."
-            )
-
+            msg("[!]", "No active devices found.", C.RED)
+            input("\nPress ENTER to return...")
             continue
 
-        print(
-            f"\n[+] Found {len(devices)} device(s)."
+        for device in devices:
+            if device.get("mac") == "Unknown":
+                device["mac"] = get_mac_address(device["ip"])
+            device["hostname"] = get_hostname(device["ip"])
+            device["vendor"] = get_vendor(device["mac"])
+
+        print_devices(devices)
+
+        print()
+        msg(
+            "[i]",
+            "Known lab devices are automatically labelled for you.",
+            C.CYAN
         )
-
-        # -------------------------------------------------
-        # DEVICE INFORMATION
-        # -------------------------------------------------
-
-        devices = enrich_devices(
-            devices
-        )
-
-        print_devices(
-            devices
-        )
-
-        # -------------------------------------------------
-        # SELECT TARGET
-        # -------------------------------------------------
 
         while True:
-
             selection = input(
-                "\nSelect a device number "
-                "(Q to cancel): "
+                "\nSelect a device [1] [2] [3]... or Q to cancel: "
             ).strip().lower()
 
             if selection == "q":
                 break
 
             try:
-
-                number = int(
-                    selection
-                )
-
-                if not (
-                    1
-                    <= number
-                    <= len(devices)
-                ):
-
-                    print(
-                        "[!] Invalid device number."
-                    )
-
+                number = int(selection)
+                if not 1 <= number <= len(devices):
+                    msg("[!]", "Invalid device number.", C.RED)
                     continue
 
-                target = devices[
-                    number - 1
-                ]
-
-                investigate_device(
-                    target
-                )
-
+                investigate_device(devices[number - 1])
                 break
 
             except ValueError:
+                msg("[!]", "Please enter a valid device number.", C.RED)
 
-                print(
-                    "[!] Please enter a number."
-                )
-
-        # -------------------------------------------------
-        # LOOP
-        # -------------------------------------------------
-
-        print("\n")
-
-        print("=" * 70)
-
-        print(
-            "🔄 READY FOR ANOTHER SCAN"
-        )
-
-        print("=" * 70)
-
-        print(
-            "Press ENTER to scan again."
-        )
-
-        print(
-            "Type Q to quit."
-        )
+        print()
+        print(paint("=" * 72, C.BLUE))
+        print(paint("READY FOR ANOTHER SCAN", C.BOLD + C.CYAN))
+        print(paint("=" * 72, C.BLUE))
 
         choice = input(
-            "\n> "
+            "Press ENTER to scan again, or Q to quit: "
         ).strip().lower()
 
         if choice == "q":
+            msg("[*]", "Goodbye.", C.CYAN)
+            return
 
-            print(
-                "\nGoodbye!"
-            )
-
-            break
-
-
-# =========================================================
-# ENTRY POINT
-# =========================================================
 
 if __name__ == "__main__":
     main()
